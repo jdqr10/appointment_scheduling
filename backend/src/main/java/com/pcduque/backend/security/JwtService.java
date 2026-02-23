@@ -20,7 +20,14 @@ public class JwtService {
 
   public JwtService(JwtProperties props) {
     this.props = props;
-    this.key = Keys.hmacShaKeyFor(props.secret().getBytes(StandardCharsets.UTF_8));
+    String secret = props.secret();
+    if (secret == null || secret.isBlank()) {
+      throw new IllegalStateException("JWT secret is missing. Define app.jwt.secret or JWT_SECRET.");
+    }
+    if (secret.getBytes(StandardCharsets.UTF_8).length < 32) {
+      throw new IllegalStateException("JWT secret must be at least 32 bytes for HS256.");
+    }
+    this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
   }
 
   public String generateToken(String email, Role role) {
