@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: appt-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: apptdb
+      POSTGRES_USER: apptuser
+      POSTGRES_PASSWORD: apptpass
+    ports:
+      - "5433:5432"
+    volumes:
+      - appt_pgdata:/var/lib/postgresql/data
+volumes:
+  appt_pgdata:
