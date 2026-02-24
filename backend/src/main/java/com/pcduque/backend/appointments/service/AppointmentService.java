@@ -62,7 +62,8 @@ public class AppointmentService {
         );
 
         boolean slotExists = slots.stream().anyMatch(s ->
-                s.startAt().equals(startAt) && s.endAt().equals(endAt)
+                s.startAt().toInstant().equals(startAt.toInstant())
+                        && s.endAt().toInstant().equals(endAt.toInstant())
         );
 
         if (!slotExists) {
