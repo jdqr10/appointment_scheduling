@@ -42,6 +42,30 @@ public class AppointmentService {
         ServiceEntity service = serviceRepository.findById(req.serviceId())
                 .orElseThrow(() -> new IllegalArgumentException("Service no existe"));
 
+        // 1) Provider activo
+        if (provider.getActive() != null && !provider.getActive()) {
+            throw new IllegalArgumentException("PROVIDER_INACTIVE: Provider inactivo");
+        }
+
+        // 2) Service activo
+        if (service.getActive() != null && !service.getActive()) {
+            throw new IllegalArgumentException("SERVICE_INACTIVE: Servicio inactivo");
+        }
+
+        // 3) Service asignado al provider (Many-to-Many)
+        boolean providerOffersService = provider.getServices() != null &&
+                provider.getServices().stream().anyMatch(s -> s.getId().equals(service.getId()));
+
+        if (!providerOffersService) {
+            throw new IllegalArgumentException("PROVIDER_SERVICE_MISMATCH: El provider no ofrece este servicio");
+        }
+
+        // 4) startAt no en el pasado (policy)
+        OffsetDateTime now = OffsetDateTime.now();
+        if (req.startAt().isBefore(now.minusMinutes(1))) {
+            throw new IllegalArgumentException("START_IN_PAST: No se puede reservar en el pasado");
+        }
+
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User no existe"));
 
@@ -50,7 +74,7 @@ public class AppointmentService {
         OffsetDateTime startAt = req.startAt();
         OffsetDateTime endAt = startAt.plusMinutes(durationMin);
 
-        // 1) Validar contra disponibilidad
+        // Validar contra disponibilidad
         LocalDate from = startAt.toLocalDate();
         LocalDate to = startAt.toLocalDate();
 
@@ -105,6 +129,10 @@ public class AppointmentService {
             throw new IllegalArgumentException("No puedes cancelar una cita que no es tuya");
         }
 
+        var from = a.getStatus();
+        if (!AppointmentStatusTransitions.canTransition(from, AppointmentStatus.CANCELLED)) {
+            throw new AppointmentConflictException("APPOINTMENT_INVALID_STATUS_TRANSITION: No se puede cancelar desde " + from);
+        }
         a.setStatus(AppointmentStatus.CANCELLED);
         appointmentRepository.save(a);
     }

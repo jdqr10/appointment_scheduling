@@ -1,5 +1,7 @@
 package com.pcduque.backend.availability.service;
 
+import com.pcduque.backend.appointments.entity.AppointmentEntity;
+import com.pcduque.backend.appointments.repository.AppointmentRepository;
 import com.pcduque.backend.availability.dto.AvailabilitySlotResponse;
 import com.pcduque.backend.availability.entity.ProviderAvailabilityRuleEntity;
 import com.pcduque.backend.availability.model.AvailabilityExceptionType;
@@ -20,6 +22,7 @@ public class AvailabilityQueryService {
 
     private final ProviderAvailabilityRuleRepository ruleRepository;
     private final ProviderAvailabilityExceptionRepository exceptionRepository;
+    private final AppointmentRepository appointmentRepository;
 
     // Si aún no manejas timezone por provider, usa uno fijo
     private static final ZoneId DEFAULT_ZONE = ZoneId.of("America/Bogota");
@@ -48,6 +51,9 @@ public class AvailabilityQueryService {
 
         // 3) Generar slots día por día
         List<AvailabilitySlotResponse> out = new ArrayList<>();
+
+        List<AppointmentEntity> appointments =
+                appointmentRepository.findBlockingIntersectingByProvider(providerId, rangeStart, rangeEnd);
 
         for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
 
@@ -107,6 +113,15 @@ public class AvailabilityQueryService {
                         15
                 );
                 effective = unionIntervals(effective, List.of(extraInterval));
+            }
+
+            // C) restar citas ya ocupadas (PENDING/CONFIRMED) para no mostrar slots tomados
+            List<AppointmentEntity> dayAppointments = appointments.stream()
+                    .filter(a -> a.getStartAt().isBefore(dayEnd) && a.getEndAt().isAfter(dayStart))
+                    .toList();
+
+            for (AppointmentEntity ap : dayAppointments) {
+                effective = subtractIntervals(effective, ap.getStartAt(), ap.getEndAt());
             }
 
             // 3.3 Generar slots dentro de intervals efectivos
