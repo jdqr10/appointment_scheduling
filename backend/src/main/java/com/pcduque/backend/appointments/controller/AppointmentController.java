@@ -1,6 +1,7 @@
 package com.pcduque.backend.appointments.controller;
 
 import com.pcduque.backend.appointments.dto.AppointmentCreateRequest;
+import com.pcduque.backend.appointments.dto.AppointmentRescheduleRequest;
 import com.pcduque.backend.appointments.dto.AppointmentResponse;
 import com.pcduque.backend.appointments.service.AppointmentService;
 import com.pcduque.backend.user.UserRepository;
@@ -33,8 +34,7 @@ public class AppointmentController {
     @Operation(summary = "Create a new appointment for the authenticated client")
     public AppointmentResponse create(
             Authentication authentication,
-            @Valid @RequestBody AppointmentCreateRequest req
-    ) {
+            @Valid @RequestBody AppointmentCreateRequest req) {
         return appointmentService.createAppointment(currentUserId(authentication), req);
     }
 
@@ -48,5 +48,14 @@ public class AppointmentController {
     @Operation(summary = "Cancel an appointment owned by the authenticated client")
     public void cancel(Authentication authentication, @PathVariable Long appointmentId) {
         appointmentService.cancelAppointment(currentUserId(authentication), appointmentId);
+    }
+
+    @PostMapping("/{appointmentId}/reschedule")
+    public void reschedule(
+            @PathVariable Long appointmentId,
+            @Valid @RequestBody AppointmentRescheduleRequest req,
+            Authentication authentication) {
+        Long userId = currentUserId(authentication); // tu método actual por email está perfecto
+        appointmentService.reschedule(userId, appointmentId, req);
     }
 }

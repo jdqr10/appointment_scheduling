@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import com.pcduque.backend.appointments.entity.AppointmentEntity;
+import com.pcduque.backend.appointments.model.AppointmentStatus;
 
 public interface AppointmentRepository extends JpaRepository<AppointmentEntity, Long> {
 
@@ -60,4 +61,19 @@ public interface AppointmentRepository extends JpaRepository<AppointmentEntity, 
       @Param("userId") Long userId,
       @Param("from") OffsetDateTime from,
       @Param("to") OffsetDateTime to);
+
+  @Query("""
+        SELECT a
+        FROM AppointmentEntity a
+        WHERE a.provider.id = :providerId
+          AND a.startAt < :to
+          AND a.endAt > :from
+          AND (:statuses IS NULL OR a.status IN :statuses)
+        ORDER BY a.startAt
+      """)
+  List<AppointmentEntity> findByProviderAndRangeFiltered(
+      @Param("providerId") Long providerId,
+      @Param("from") OffsetDateTime from,
+      @Param("to") OffsetDateTime to,
+      @Param("statuses") List<AppointmentStatus> statuses);
 }

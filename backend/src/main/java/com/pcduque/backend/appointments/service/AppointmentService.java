@@ -1,6 +1,7 @@
 package com.pcduque.backend.appointments.service;
 
 import com.pcduque.backend.appointments.dto.AppointmentCreateRequest;
+import com.pcduque.backend.appointments.dto.AppointmentRescheduleRequest;
 import com.pcduque.backend.appointments.dto.AppointmentResponse;
 import com.pcduque.backend.appointments.entity.AppointmentEntity;
 import com.pcduque.backend.appointments.model.AppointmentStatus;
@@ -9,11 +10,11 @@ import com.pcduque.backend.availability.dto.AvailabilitySlotResponse;
 import com.pcduque.backend.availability.service.AvailabilityConflictException;
 import com.pcduque.backend.availability.service.AvailabilityQueryService;
 import com.pcduque.backend.catalog.provider.ProviderEntity;
-import com.pcduque.backend.catalog.provider.ProviderRepository; 
-import com.pcduque.backend.catalog.service.ServiceEntity;      
-import com.pcduque.backend.catalog.service.ServiceRepository;  
-import com.pcduque.backend.user.User;                  
-import com.pcduque.backend.user.UserRepository;              
+import com.pcduque.backend.catalog.provider.ProviderRepository;
+import com.pcduque.backend.catalog.service.ServiceEntity;
+import com.pcduque.backend.catalog.service.ServiceRepository;
+import com.pcduque.backend.user.User;
+import com.pcduque.backend.user.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -28,9 +29,9 @@ import java.util.List;
 public class AppointmentService {
 
     private final AppointmentRepository appointmentRepository;
-    private final ProviderRepository providerRepository;   
-    private final ServiceRepository serviceRepository;     
-    private final UserRepository userRepository;           
+    private final ProviderRepository providerRepository;
+    private final ServiceRepository serviceRepository;
+    private final UserRepository userRepository;
     private final AvailabilityQueryService availabilityQueryService;
 
     @Transactional
@@ -69,7 +70,7 @@ public class AppointmentService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User no existe"));
 
-        int durationMin = service.getDurationMinutes(); 
+        int durationMin = service.getDurationMinutes();
 
         OffsetDateTime startAt = req.startAt();
         OffsetDateTime endAt = startAt.plusMinutes(durationMin);
@@ -82,13 +83,10 @@ public class AppointmentService {
                 provider.getId(),
                 from,
                 to,
-                durationMin
-        );
+                durationMin);
 
-        boolean slotExists = slots.stream().anyMatch(s ->
-                s.startAt().toInstant().equals(startAt.toInstant())
-                        && s.endAt().toInstant().equals(endAt.toInstant())
-        );
+        boolean slotExists = slots.stream().anyMatch(s -> s.startAt().toInstant().equals(startAt.toInstant())
+                && s.endAt().toInstant().equals(endAt.toInstant()));
 
         if (!slotExists) {
             throw new AvailabilityConflictException("SLOT_NOT_AVAILABLE: El horario solicitado no está disponible.");
@@ -131,10 +129,59 @@ public class AppointmentService {
 
         var from = a.getStatus();
         if (!AppointmentStatusTransitions.canTransition(from, AppointmentStatus.CANCELLED)) {
-            throw new AppointmentConflictException("APPOINTMENT_INVALID_STATUS_TRANSITION: No se puede cancelar desde " + from);
+            throw new AppointmentConflictException(
+                    "APPOINTMENT_INVALID_STATUS_TRANSITION: No se puede cancelar desde " + from);
         }
         a.setStatus(AppointmentStatus.CANCELLED);
         appointmentRepository.save(a);
+    }
+
+    @Transactional
+    public void reschedule(Long userId, Long appointmentId, AppointmentRescheduleRequest req) {
+        AppointmentEntity a = appointmentRepository.findById(appointmentId)
+                .orElseThrow(() -> new IllegalArgumentException("Appointment no existe"));
+
+        // ownership (cliente)
+        if (!a.getUser().getId().equals(userId)) {
+            throw new IllegalArgumentException("No puedes reprogramar una cita que no es tuya");
+        }
+
+        // estado válido para reprogramar
+        if (a.getStatus() == AppointmentStatus.CANCELLED || a.getStatus() == AppointmentStatus.COMPLETED) {
+            throw new AppointmentConflictException(
+                    "APPOINTMENT_INVALID_STATUS_TRANSITION: No se puede reprogramar en estado " + a.getStatus());
+        }
+
+        // policy: no pasado
+        OffsetDateTime now = OffsetDateTime.now();
+        if (req.newStartAt().isBefore(now.minusMinutes(1))) {
+            throw new IllegalArgumentException("START_IN_PAST: No se puede reprogramar al pasado");
+        }
+
+        // duración desde service
+        int durationMin = a.getService().getDurationMinutes(); // ajusta nombre real si difiere
+        OffsetDateTime newEndAt = req.newStartAt().plusMinutes(durationMin);
+
+        // validar slot disponible (engine)
+        var day = req.newStartAt().toLocalDate();
+        var slots = availabilityQueryService.getAvailableSlots(a.getProvider().getId(), day, day, durationMin);
+
+        boolean slotExists = slots.stream()
+                .anyMatch(s -> s.startAt().equals(req.newStartAt()) && s.endAt().equals(newEndAt));
+
+        if (!slotExists) {
+            throw new AppointmentConflictException("SLOT_NOT_AVAILABLE: El nuevo horario no está disponible.");
+        }
+
+        // aplicar cambios
+        a.setStartAt(req.newStartAt());
+        a.setEndAt(newEndAt);
+
+        try {
+            appointmentRepository.save(a);
+        } catch (DataIntegrityViolationException ex) {
+            throw new AppointmentConflictException("APPOINTMENT_OVERLAP: Ya existe una cita en ese rango.");
+        }
     }
 
     private AppointmentResponse toResponse(AppointmentEntity a) {
@@ -146,7 +193,6 @@ public class AppointmentService {
                 a.getStartAt(),
                 a.getEndAt(),
                 a.getStatus(),
-                a.getNotes()
-        );
+                a.getNotes());
     }
 }

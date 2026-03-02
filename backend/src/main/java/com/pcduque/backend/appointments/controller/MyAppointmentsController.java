@@ -22,11 +22,16 @@ public class MyAppointmentsController {
   private final UserRepository userRepository;
 
   private Long currentUserId(Authentication authentication) {
-    String email = authentication.getName();
-    return userRepository.findByEmail(email)
-        .map(user -> user.getId())
-        .orElseThrow(() -> new IllegalArgumentException("Usuario autenticado no encontrado"));
+  if (authentication == null || authentication.getName() == null || authentication.getName().isBlank()) {
+    throw new IllegalStateException("No se pudo obtener el usuario autenticado (authentication/name vacío)");
   }
+
+  String email = authentication.getName();
+
+  return userRepository.findByEmail(email)
+      .map(user -> user.getId())
+      .orElseThrow(() -> new IllegalArgumentException("Usuario autenticado no encontrado: " + email));
+}
 
   // GET /appointments/me?from=...&to=...
   @GetMapping(value = "/me", params = {"from", "to"})
