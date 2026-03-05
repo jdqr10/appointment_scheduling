@@ -1,7 +1,7 @@
 import axios from "axios";
 
 export const http = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || "http://localhost:8081",
+  baseURL: import.meta.env.VITE_API_BASE_URL || "/api",
 });
 
 // Attach access token
@@ -39,7 +39,7 @@ http.interceptors.response.use(
 
     try {
       const r = await axios.post(
-        (import.meta.env.VITE_API_BASE_URL || "http://localhost:8081") + "/auth/refresh",
+        (import.meta.env.VITE_API_BASE_URL || "/api") + "/auth/refresh",
         { refreshToken }
       );
 

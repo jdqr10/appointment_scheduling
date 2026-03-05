@@ -2,8 +2,11 @@ import { http } from "./http";
 
 export async function apiLogin({ email, password }) {
   const { data } = await http.post("/auth/login", { email, password });
-  // Ajusta si tu backend devuelve nombres diferentes
-  localStorage.setItem("ACCESS_TOKEN", data.accessToken);
+  const accessToken = data.accessToken || data.token;
+  if (!accessToken) {
+    throw new Error("Login response does not include access token");
+  }
+  localStorage.setItem("ACCESS_TOKEN", accessToken);
 
   // Si ya implementaste refresh token:
   if (data.refreshToken) localStorage.setItem("REFRESH_TOKEN", data.refreshToken);

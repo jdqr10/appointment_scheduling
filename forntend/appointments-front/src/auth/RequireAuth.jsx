@@ -5,13 +5,25 @@ export default function RequireAuth({ children, roles }) {
   const { user, loading, isAuthenticated } = useAuth();
   const location = useLocation();
 
-  if (loading) return <div style={{ padding: 16 }}>Cargando sesión…</div>;
+  if (loading) {
+    return (
+      <div className="mx-auto w-full max-w-6xl rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
+        Cargando sesión...
+      </div>
+    );
+  }
+
   if (!isAuthenticated) return <Navigate to="/login" replace state={{ from: location }} />;
 
-  // roles opcional: si tu /auth/me devuelve role: "CLIENT"/"ADMIN"
   if (roles?.length) {
-    const role = user?.role; // ajusta si tu backend usa otro campo
-    if (!roles.includes(role)) return <div style={{ padding: 16 }}>No autorizado</div>;
+    const role = user?.role;
+    if (!roles.includes(role)) {
+      return (
+        <div className="mx-auto w-full max-w-6xl rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700 shadow-sm">
+          No autorizado
+        </div>
+      );
+    }
   }
 
   return children;
