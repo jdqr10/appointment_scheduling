@@ -1,9 +1,54 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
+import { DayPicker } from "react-day-picker";
+import "react-day-picker/style.css";
 import { providerServices } from "../api/catalog";
 import { getSlots } from "../api/availability";
 import { createAppointment } from "../api/appointments";
 import { toISODate } from "../utils/date";
+
+function StepTitle({ number, title }) {
+  return (
+    <div className="flex items-center gap-3">
+      <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-teal-900 text-sm font-bold text-white">
+        {number}
+      </span>
+      <h3 className="text-2xl font-bold tracking-tight text-slate-900">{title}</h3>
+    </div>
+  );
+}
+
+function formatDateLabel(value) {
+  if (!value) return "-";
+  const parsed = new Date(`${value}T12:00:00`);
+  return parsed.toLocaleDateString("es-CO", {
+    weekday: "short",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
+
+function formatTimeLabel(value) {
+  if (!value) return "-";
+  return new Date(value).toLocaleTimeString("es-CO", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function isoToLocalDate(value) {
+  if (!value) return undefined;
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return undefined;
+  return new Date(year, month - 1, day);
+}
+
+function addDays(baseDate, days) {
+  const next = new Date(baseDate);
+  next.setDate(next.getDate() + days);
+  return next;
+}
 
 export default function BookAppointment() {
   const { id } = useParams();
@@ -36,6 +81,13 @@ export default function BookAppointment() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+  const minBookingDate = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return today;
+  }, []);
+  const maxBookingDate = useMemo(() => addDays(minBookingDate, 30), [minBookingDate]);
+  const selectedDate = useMemo(() => isoToLocalDate(date), [date]);
 
   useEffect(() => {
     let mounted = true;
@@ -127,138 +179,214 @@ export default function BookAppointment() {
   }
 
   return (
-    <section className="mx-auto w-full max-w-6xl space-y-4">
+    <section className="mx-auto w-full max-w-7xl space-y-6">
       <div>
         <Link
           to={`/providers/${providerId}`}
-          className="text-sm font-semibold text-slate-900 underline decoration-slate-300 underline-offset-4 hover:decoration-slate-900"
+          className="inline-flex items-center gap-2 text-base font-medium text-teal-900 transition hover:text-teal-700"
         >
-          ← Volver al Provider
+          <span aria-hidden>←</span>
+          Volver al provider
         </Link>
       </div>
 
-      <h2 className="text-2xl font-bold tracking-tight text-slate-900">Reservar cita</h2>
+      <header>
+        <h1 className="text-4xl font-bold tracking-tight text-slate-900">Reservar cita</h1>
+        <p className="mt-2 text-2xl text-slate-500">Selecciona tu servicio, fecha y horario preferido</p>
+      </header>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="text-base font-semibold text-slate-900">1) Servicio</h3>
+      <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <StepTitle number={1} title="Seleccionar servicio" />
 
-          <select
-            value={serviceId || ""}
-            onChange={(e) => setServiceId(Number(e.target.value))}
-            disabled={services.length === 0}
-            className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none ring-slate-300 transition focus:border-slate-400 focus:ring"
-          >
-            <option value="" disabled>
-              Selecciona un servicio...
-            </option>
-            {services.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name} ({s.durationMinutes ?? s.durationMin ?? "?"} min)
-              </option>
-            ))}
-          </select>
+        {services.length === 0 ? (
+          <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-base text-amber-700">
+            Este proveedor no tiene servicios asignados o están inactivos.
+          </div>
+        ) : (
+          <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+            {services.map((s) => {
+              const duration = s.durationMinutes ?? s.durationMin ?? "?";
+              const active = s.id === serviceId;
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => setServiceId(s.id)}
+                  className={`rounded-2xl border p-5 text-left transition ${
+                    active
+                      ? "border-teal-700 bg-teal-50 shadow-sm"
+                      : "border-slate-200 bg-white hover:border-teal-300"
+                  }`}
+                >
+                  <div className="flex items-start gap-4">
+                    <span
+                      className={`inline-flex h-14 w-14 items-center justify-center rounded-2xl ${
+                        active ? "bg-teal-200 text-teal-900" : "bg-cyan-100 text-cyan-900"
+                      }`}
+                    >
+                      ✂
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-2xl font-semibold text-slate-900">{s.name}</span>
+                      <span className="mt-1 block text-lg text-slate-600">
+                        {duration} min
+                        <span className="ml-3 font-semibold text-slate-900">
+                          ${Number(s.price ?? 0).toLocaleString("en-US")}
+                        </span>
+                      </span>
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </article>
 
-          {services.length === 0 && (
-            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
-              Este provedor no tiene servicios asignados o están inactivos.
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+        <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <StepTitle number={2} title="Elegir fecha" />
+
+          <div className="mt-6 grid gap-4 md:grid-cols-[minmax(250px,300px)_1fr]">
+            <div className="rounded-2xl border border-slate-200 p-4">
+              <DayPicker
+                mode="single"
+                selected={selectedDate}
+                onSelect={(value) => {
+                  if (!value) return;
+                  setDate(toISODate(value));
+                }}
+                showOutsideDays
+                weekStartsOn={1}
+                disabled={[
+                  { dayOfWeek: [0] },
+                  { before: minBookingDate },
+                  { after: maxBookingDate },
+                ]}
+                className="text-base"
+                classNames={{
+                  months: "w-full",
+                  month: "w-full",
+                  caption: "mb-3 flex items-center justify-between text-slate-900",
+                  caption_label: "text-lg font-semibold",
+                  nav: "flex items-center gap-1",
+                  button_previous:
+                    "inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100",
+                  button_next:
+                    "inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100",
+                  table: "w-full border-collapse",
+                  weekdays: "text-slate-500",
+                  weekday: "py-2 text-sm font-medium",
+                  week: "w-full",
+                  day: "text-center",
+                  day_button:
+                    "mx-auto inline-flex h-10 w-10 items-center justify-center rounded-xl text-base text-slate-800 transition hover:bg-slate-100",
+                  selected: "bg-teal-900 text-white hover:bg-teal-900",
+                  today: "border border-teal-300",
+                  disabled: "text-slate-300 line-through opacity-60",
+                  outside: "text-slate-300",
+                }}
+              />
+              <div className="mt-4 rounded-xl bg-slate-100 px-3 py-2 text-sm text-slate-700">
+                Fecha seleccionada: <span className="font-semibold text-slate-900">{formatDateLabel(date)}</span>
+              </div>
             </div>
-          )}
+
+            <div className="space-y-3">
+              <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-4 text-base text-slate-600">
+                Elige una fecha para ver los horarios disponibles.
+              </div>
+              <div className="rounded-2xl bg-cyan-100 px-4 py-4 text-base text-slate-700">
+                Los domingos no están disponibles. Las citas se pueden reservar con hasta 30 días de anticipación.
+              </div>
+              <div className="rounded-2xl bg-slate-100 px-4 py-4 text-base text-slate-700">
+                Duración del servicio: <span className="font-semibold text-slate-900">{durationMinutes ?? "-"}</span> min
+              </div>
+            </div>
+          </div>
         </article>
 
-        <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="text-base font-semibold text-slate-900">2) Fecha</h3>
+        <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <StepTitle number={3} title="Horarios disponibles" />
 
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none ring-slate-300 transition focus:border-slate-400 focus:ring"
-          />
+          {slotLoading && <div className="mt-6 text-base text-slate-600">Cargando horarios...</div>}
 
-          <div className="mt-3 text-sm text-slate-600">
-            Duración: <span className="font-semibold text-slate-900">{durationMinutes ?? "-"}</span> min
+          {slotError && (
+            <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-base text-rose-700">
+              {slotError}
+            </div>
+          )}
+
+          {!slotLoading && !slotError && slots.length === 0 && (
+            <div className="mt-6 rounded-2xl border border-dashed border-slate-300 px-4 py-10 text-center text-lg text-slate-500">
+              No hay horarios disponibles para esta fecha.
+            </div>
+          )}
+
+          <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-3">
+            {slots.map((s) => {
+              const start = s.startAt;
+              const active = selectedStartAt === start;
+
+              return (
+                <button
+                  key={start}
+                  onClick={() => setSelectedStartAt(start)}
+                  className={`rounded-xl border px-4 py-3 text-base font-semibold transition ${
+                    active
+                      ? "border-teal-900 bg-teal-900 text-white"
+                      : "border-slate-300 bg-white text-slate-700 hover:border-teal-400"
+                  }`}
+                >
+                  {formatTimeLabel(start)}
+                </button>
+              );
+            })}
           </div>
         </article>
       </div>
 
-      <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h3 className="text-base font-semibold text-slate-900">3) Horarios disponibles</h3>
+      <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <StepTitle number={4} title="Confirmar reserva" />
 
-        {slotLoading && <div className="mt-3 text-sm text-slate-600">Cargando slots...</div>}
+        <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-[1fr_320px]">
+          <label className="block space-y-2">
+            <span className="text-lg font-medium text-slate-700">Notas adicionales</span>
+            <input
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Ej: Corte + barba, prefiero desvanecido a los lados..."
+              className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-base text-slate-900 outline-none ring-slate-300 transition focus:border-slate-400 focus:ring"
+            />
+          </label>
 
-        {slotError && (
-          <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-            {slotError}
+          <div className="space-y-3">
+            <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-4 text-base text-slate-600">
+              <div>Servicio: <span className="font-semibold text-slate-900">{selectedService?.name || "-"}</span></div>
+              <div className="mt-1">Fecha: <span className="font-semibold text-slate-900">{formatDateLabel(date)}</span></div>
+              <div className="mt-1">Hora: <span className="font-semibold text-slate-900">{formatTimeLabel(selectedStartAt)}</span></div>
+            </div>
+
+            <button
+              disabled={submitting || !serviceId || !selectedStartAt}
+              onClick={handleCreate}
+              className="w-full rounded-2xl bg-teal-900 px-5 py-3 text-xl font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {submitting ? "Creando..." : "Reservar cita"}
+            </button>
           </div>
-        )}
-
-        {!slotLoading && !slotError && slots.length === 0 && (
-          <div className="mt-3 text-sm text-slate-600">No hay slots disponibles para esta fecha.</div>
-        )}
-
-        <div className="mt-3 flex flex-wrap gap-2">
-          {slots.map((s) => {
-            const start = s.startAt;
-            const label = new Date(start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-            const active = selectedStartAt === start;
-
-            return (
-              <button
-                key={start}
-                onClick={() => setSelectedStartAt(start)}
-                className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
-                  active
-                    ? "border-slate-900 bg-slate-900 text-white"
-                    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
-                }`}
-              >
-                {label}
-              </button>
-            );
-          })}
         </div>
-      </article>
-
-      <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h3 className="text-base font-semibold text-slate-900">4) Confirmar</h3>
-
-        <label className="mt-3 block space-y-1">
-          <span className="text-sm font-medium text-slate-700">Notas (opcional)</span>
-          <input
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Ej: Corte + barba"
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none ring-slate-300 transition focus:border-slate-400 focus:ring"
-          />
-        </label>
 
         {submitError && (
-          <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-base text-rose-700">
             {submitError}
           </div>
         )}
 
         {successMsg && (
-          <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-base text-emerald-700">
             {successMsg}
           </div>
         )}
-
-        <button
-          disabled={submitting}
-          onClick={handleCreate}
-          className="mt-4 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {submitting ? "Creando..." : "Crear cita"}
-        </button>
-
-        <div className="mt-3 text-sm text-slate-600">
-          Slot seleccionado:{" "}
-          <span className="font-semibold text-slate-900">
-            {selectedStartAt ? new Date(selectedStartAt).toString() : "-"}
-          </span>
-        </div>
       </article>
     </section>
   );

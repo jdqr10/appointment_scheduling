@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { myAppointments, cancelAppointment, rescheduleAppointment } from "../api/appointments";
 import { getSlots } from "../api/availability";
+import { listProviders, providerServices } from "../api/catalog";
 
 function startOfDayISO(dateStr) {
   return `${dateStr}T00:00:00-05:00`;
@@ -25,6 +26,16 @@ function statusBadge(status) {
   }
 }
 
+function toISODate(value) {
+  return new Date(value).toISOString().slice(0, 10);
+}
+
+function getDurationMinutes(appointment) {
+  const start = new Date(appointment.startAt).getTime();
+  const end = new Date(appointment.endAt).getTime();
+  return Math.max(1, Math.round((end - start) / 60000));
+}
+
 export default function MyAppointments() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -33,14 +44,53 @@ export default function MyAppointments() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const [providerNames, setProviderNames] = useState({});
+  const [serviceNames, setServiceNames] = useState({});
+
   const [rescheduleId, setRescheduleId] = useState(null);
   const [rescheduleDate, setRescheduleDate] = useState("");
   const [rescheduleSlots, setRescheduleSlots] = useState([]);
   const [rescheduleLoadingSlots, setRescheduleLoadingSlots] = useState(false);
   const [rescheduleSlotError, setRescheduleSlotError] = useState("");
   const [newStartAt, setNewStartAt] = useState("");
+
   const [actionMsg, setActionMsg] = useState("");
   const [actionError, setActionError] = useState("");
+
+  async function loadCatalogNames() {
+    try {
+      const providers = await listProviders();
+      const providerMap = {};
+      const serviceMap = {};
+
+      const safeProviders = Array.isArray(providers) ? providers : [];
+      safeProviders.forEach((p) => {
+        providerMap[p.id] = p.name || `Provider #${p.id}`;
+      });
+
+      const serviceEntries = await Promise.all(
+        safeProviders.map(async (p) => {
+          try {
+            const services = await providerServices(p.id);
+            return Array.isArray(services) ? services : [];
+          } catch {
+            return [];
+          }
+        })
+      );
+
+      serviceEntries.flat().forEach((s) => {
+        if (!serviceMap[s.id]) {
+          serviceMap[s.id] = s.name || `Servicio #${s.id}`;
+        }
+      });
+
+      setProviderNames(providerMap);
+      setServiceNames(serviceMap);
+    } catch {
+      // fallback silencioso a IDs
+    }
+  }
 
   async function load({ useFilter = false } = {}) {
     setLoading(true);
@@ -54,9 +104,7 @@ export default function MyAppointments() {
         if (!fromDate || !toDate) {
           throw new Error("Para filtrar por fecha debes seleccionar 'Desde' y 'Hasta'.");
         }
-        const from = startOfDayISO(fromDate);
-        const to = endOfDayISO(toDate);
-        data = await myAppointments({ from, to });
+        data = await myAppointments({ from: startOfDayISO(fromDate), to: endOfDayISO(toDate) });
       } else {
         data = await myAppointments();
       }
@@ -75,6 +123,7 @@ export default function MyAppointments() {
 
   useEffect(() => {
     load();
+    loadCatalogNames();
   }, []);
 
   async function handleCancel(id) {
@@ -88,16 +137,6 @@ export default function MyAppointments() {
       const msg = e?.response?.data?.message || e?.response?.data?.error || "No se pudo cancelar.";
       setActionError(msg);
     }
-  }
-
-  function toISODate(value) {
-    return new Date(value).toISOString().slice(0, 10);
-  }
-
-  function getDurationMinutes(appointment) {
-    const start = new Date(appointment.startAt).getTime();
-    const end = new Date(appointment.endAt).getTime();
-    return Math.max(1, Math.round((end - start) / 60000));
   }
 
   async function loadRescheduleSlots(appointment, date) {
@@ -146,49 +185,79 @@ export default function MyAppointments() {
     }
   }
 
+  const stats = useMemo(() => {
+    const now = Date.now();
+    const upcoming = items.filter(
+      (a) => ["PENDING", "CONFIRMED"].includes(a.status) && new Date(a.startAt).getTime() >= now
+    ).length;
+    const completed = items.filter((a) => a.status === "COMPLETED").length;
+    const cancelled = items.filter((a) => a.status === "CANCELLED").length;
+    return { upcoming, completed, cancelled };
+  }, [items]);
+
   return (
-    <section className="mx-auto w-full max-w-6xl">
-      <h2 className="text-2xl font-bold tracking-tight text-slate-900">Mis citas</h2>
+    <section className="mx-auto w-full max-w-7xl">
+      <header>
+        <h1 className="text-4xl font-bold tracking-tight text-slate-900">Mis citas</h1>
+        <p className="mt-2 text-lg text-slate-600">Gestiona, reprograma o cancela tus reservas</p>
+      </header>
 
-      <div className="mt-4 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <label className="space-y-1">
-          <span className="block text-sm font-medium text-slate-700">Desde</span>
-          <input
-            type="date"
-            value={fromDate}
-            onChange={(e) => setFromDate(e.target.value)}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none ring-slate-300 transition focus:border-slate-400 focus:ring"
-          />
-        </label>
-
-        <label className="space-y-1">
-          <span className="block text-sm font-medium text-slate-700">Hasta</span>
-          <input
-            type="date"
-            value={toDate}
-            onChange={(e) => setToDate(e.target.value)}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none ring-slate-300 transition focus:border-slate-400 focus:ring"
-          />
-        </label>
-
-        <button
-          onClick={() => load({ useFilter: true })}
-          className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
-        >
-          Filtrar
-        </button>
-
-        <button
-          onClick={() => {
-            setFromDate("");
-            setToDate("");
-            load();
-          }}
-          className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
-        >
-          Ver todas
-        </button>
+      <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-3">
+        <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="text-3xl font-bold text-slate-900">{stats.upcoming}</div>
+          <div className="mt-1 text-sm font-medium text-slate-600">Próximas</div>
+        </article>
+        <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="text-3xl font-bold text-emerald-700">{stats.completed}</div>
+          <div className="mt-1 text-sm font-medium text-slate-600">Completadas</div>
+        </article>
+        <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="text-3xl font-bold text-rose-700">{stats.cancelled}</div>
+          <div className="mt-1 text-sm font-medium text-slate-600">Canceladas</div>
+        </article>
       </div>
+
+      <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[220px_220px_auto_auto] lg:items-end">
+          <label className="space-y-1">
+            <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Desde</span>
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none ring-slate-300 transition focus:border-slate-400 focus:ring"
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Hasta</span>
+            <input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none ring-slate-300 transition focus:border-slate-400 focus:ring"
+            />
+          </label>
+
+          <button
+            onClick={() => load({ useFilter: true })}
+            className="rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-600"
+          >
+            Filtrar
+          </button>
+
+          <button
+            onClick={() => {
+              setFromDate("");
+              setToDate("");
+              load();
+            }}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+          >
+            Ver todas
+          </button>
+        </div>
+      </section>
 
       {error && (
         <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
@@ -211,7 +280,7 @@ export default function MyAppointments() {
       {loading ? (
         <div className="mt-4 text-sm text-slate-600">Cargando...</div>
       ) : items.length === 0 ? (
-        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
           No tienes citas para mostrar.
         </div>
       ) : (
@@ -224,32 +293,32 @@ export default function MyAppointments() {
             const canCancel = a.status === "PENDING" || a.status === "CONFIRMED";
             const canReschedule = a.status === "PENDING" || a.status === "CONFIRMED";
 
+            const serviceLabel = serviceNames[a.serviceId] || `Servicio #${a.serviceId}`;
+            const providerLabel = providerNames[a.providerId] || `Provider #${a.providerId}`;
+
             return (
-              <article key={a.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex flex-col gap-4 sm:flex-row sm:justify-between">
+              <article key={a.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <div className="text-base font-semibold text-slate-900">
-                        {a.serviceName ? a.serviceName : `Servicio #${a.serviceId}`}
-                      </div>
-                      <span className={`rounded-md px-2 py-1 text-xs font-semibold ${badge.classes}`}>
+                      <h3 className="text-2xl font-bold text-slate-900">{serviceLabel}</h3>
+                      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${badge.classes}`}>
                         {badge.label}
                       </span>
                     </div>
-                    <div className="mt-1 text-sm text-slate-600">
-                      {start.toLocaleString()} → {end.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+
+                    <div className="mt-2 text-lg text-slate-600">
+                      {start.toLocaleDateString()} · {start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} - {end.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </div>
-                    <div className="mt-1 text-sm text-slate-600">
-                      Provider: {a.providerName ? a.providerName : `#${a.providerId}`}
-                    </div>
-                    {a.notes && <div className="mt-2 text-sm text-slate-700">Notas: {a.notes}</div>}
+                    <div className="mt-1 text-lg text-slate-600">{providerLabel}</div>
+                    {a.notes && <div className="mt-2 text-base text-slate-500">{a.notes}</div>}
                   </div>
 
-                  <div className="flex min-w-40 flex-col gap-2">
+                  <div className="flex items-center gap-2">
                     <button
                       disabled={!canCancel}
                       onClick={() => handleCancel(a.id)}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="rounded-xl border border-rose-200 bg-white px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       Cancelar
                     </button>
@@ -266,7 +335,7 @@ export default function MyAppointments() {
                         setActionError("");
                         await loadRescheduleSlots(a, date);
                       }}
-                      className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-600 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       Reprogramar
                     </button>
@@ -274,7 +343,7 @@ export default function MyAppointments() {
                 </div>
 
                 {rescheduleId === a.id && (
-                  <div className="mt-4 border-t border-slate-200 pt-4">
+                  <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
                     <div className="mb-2 text-sm font-semibold text-slate-900">Reprogramar cita</div>
                     <div className="flex flex-wrap items-center gap-2">
                       <input
@@ -290,9 +359,7 @@ export default function MyAppointments() {
                       />
                     </div>
 
-                    {rescheduleLoadingSlots && (
-                      <div className="mt-3 text-sm text-slate-600">Cargando horarios...</div>
-                    )}
+                    {rescheduleLoadingSlots && <div className="mt-3 text-sm text-slate-600">Cargando horarios...</div>}
 
                     {rescheduleSlotError && (
                       <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
@@ -301,23 +368,21 @@ export default function MyAppointments() {
                     )}
 
                     {!rescheduleLoadingSlots && !rescheduleSlotError && rescheduleSlots.length === 0 && (
-                      <div className="mt-3 text-sm text-slate-600">
-                        No hay horarios disponibles para la fecha seleccionada.
-                      </div>
+                      <div className="mt-3 text-sm text-slate-600">No hay horarios disponibles para la fecha seleccionada.</div>
                     )}
 
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <div className="mt-3 flex flex-wrap gap-2">
                       {rescheduleSlots.map((slot) => {
-                        const start = slot.startAt;
-                        const selected = newStartAt === start;
-                        const label = new Date(start).toLocaleTimeString([], {
+                        const startAt = slot.startAt;
+                        const selected = newStartAt === startAt;
+                        const label = new Date(startAt).toLocaleTimeString([], {
                           hour: "2-digit",
                           minute: "2-digit",
                         });
                         return (
                           <button
-                            key={start}
-                            onClick={() => setNewStartAt(start)}
+                            key={startAt}
+                            onClick={() => setNewStartAt(startAt)}
                             className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
                               selected
                                 ? "border-slate-900 bg-slate-900 text-white"
@@ -331,18 +396,9 @@ export default function MyAppointments() {
                     </div>
 
                     <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <input
-                        value={
-                          newStartAt
-                            ? `Horario seleccionado: ${new Date(newStartAt).toLocaleString()}`
-                            : "Selecciona un horario para confirmar"
-                        }
-                        readOnly
-                        className="w-full max-w-md rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700"
-                      />
                       <button
                         onClick={handleRescheduleConfirm}
-                        className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
+                        className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-600"
                       >
                         Confirmar cambio
                       </button>
@@ -356,11 +412,8 @@ export default function MyAppointments() {
                         }}
                         className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
                       >
-                        Cancelar
+                        Cerrar
                       </button>
-                    </div>
-                    <div className="mt-2 text-xs text-slate-500">
-                      Nota: el backend validará disponibilidad y evitará solapamientos.
                     </div>
                   </div>
                 )}
